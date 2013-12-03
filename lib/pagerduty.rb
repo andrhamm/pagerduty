@@ -13,11 +13,12 @@ end
 
 class Pagerduty
 
-  attr_reader :service_key, :incident_key
+  attr_reader :service_key, :incident_key, :sub_domain
 
-  def initialize(service_key, incident_key = nil)
+  def initialize(service_key, incident_key = nil, sub_domain = nil)
     @service_key = service_key
     @incident_key = incident_key
+    @sub_domain = sub_domain
   end
 
   def trigger(description, details = {})
@@ -31,13 +32,40 @@ class Pagerduty
     PagerdutyIncident.new @service_key, incident_key
   end
 
+  def get_services
+    resp = rest_call("services")
+    throw PagerdutyException.new(self, resp) unless defined? resp["services"]
+
+    resp["services"].map {|service| OpenStruct.new service}
+  end
+
 protected
+  def rest_call(uri)
+    url = URI.parse("https://#{@sub_domain}.pagerduty.com/api/v1/#{uri}")
+
+    http = Net::HTTP.new(url.host, url.port)
+    http.use_ssl = true
+
+    req = Net::HTTP::Get.new(url.request_uri)
+    req['Content-Type'] = 'application/json'
+    req['Accept'] = 'application/json'
+    req['Authorization'] = "Token token=#{@service_key}"
+
+    res = http.request(req)
+
+    case res
+    when Net::HTTPSuccess, Net::HTTPRedirection
+      JSON.parse(res.body)
+    else
+      res.error!
+    end
+  end
+
   def api_call(event_type, description, details = {})
     params = { :event_type => event_type, :service_key => @service_key, :description => description, :details => details }
     params.merge!({ :incident_key => @incident_key }) unless @incident_key == nil
 
     url = URI.parse("http://events.pagerduty.com/generic/2010-04-15/create_event.json")
-
 
     http = Net::HTTP.new(url.host, url.port)
 
